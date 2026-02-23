@@ -33,7 +33,7 @@ All tasks have been completed. This document shows exactly what was changed in e
 
    A. The toughest part of being a software engineer is dealing with ambiguity and constantly shifting requirements. It can be challenging to balance speed and quality when priorities change, but it also pushes me to stay adaptable, communicate proactively, and design more resilient solutions.
 
-## Task 1: Frontend UI Polish ✅
+## Task 1: Frontend UI Polish 
 
 ### Files Modified:
 1. **frontend/src/style.css** - Design system created
@@ -43,45 +43,29 @@ All tasks have been completed. This document shows exactly what was changed in e
 
 ### Changes in style.css:
 **Added**:
-- 40+ CSS custom properties (colors, spacing, typography, shadows, transitions)
+- CSS custom properties (colors, spacing, typography, shadows, transitions)
 - Dark mode variables
 - Responsive utility classes
 - Global form and button styling
 - Hover effects and transitions
 - Accessibility improvements (focus rings, contrast)
-- Responsive breakpoints (768px, 1024px)
-
-**Total**: ~300 lines of CSS added
+- Responsive breakpoints (320px, 768px, 1024px, 1440px)
 
 ### Changes in App.vue:
 **Added**:
 - Responsive grid layout (single column mobile → two columns tablet+)
-- Dark mode toggle button (🌙/☀️) in header
+- Dark/Light mode toggle button in header
 - ARIA labels and semantic HTML
 - CSS class toggling for theme switching
-- localStorage persistence for theme preference
+- localStorage persistence for theme selection
 - System preference detection (prefers-color-scheme)
 - Sticky header styling
 - Footer with copyright info
 
-**Template Structure**:
-```vue
-<div class="app" :class="theme">
-  <header><!-- Navigation with theme toggle --></header>
-  <main>
-    <div class="main-grid">
-      <VendorForm />
-      <VendorList />
-    </div>
-  </main>
-  <footer><!-- Footer content --></footer>
-</div>
-```
-
 ### Changes in VendorForm.vue:
 **Updated**:
 - Applied design system colors and spacing
-- Enhanced form input styling
+- Enhanced form input styling & validations fixes for email and other fields
 - Button styling with hover effects
 - Error message styling
 - Form group spacing and alignment
@@ -94,12 +78,12 @@ All tasks have been completed. This document shows exactly what was changed in e
 - Zebra striping (alternating row colors)
 - Hover effects on rows
 - Badge styling for partner type
-- Delete button icon (🗑️) styling
+- Delete button icon styling
 - Button hover and focus states
 
 ---
 
-## Task 2: Delete Vendor ✅
+## Task 2: Delete Vendor
 
 ### Files Modified:
 1. **backend-node/src/routes/vendors.ts** - DELETE endpoint added
@@ -131,7 +115,7 @@ router.delete('/:id', (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Vendor not found' });
     }
     
-    console.log(`✅ Vendor deleted: ${id}`);
+    console.log(`Vendor deleted: ${id}`);
     res.status(200).json({ message: 'Vendor deleted successfully' });
   });
 });
@@ -146,7 +130,7 @@ router.delete('/:id', (req: Request, res: Response) => {
 
 ### Changes in VendorList.vue:
 **Added**:
-- Delete button (🗑️) on each row
+- Delete button on each row
 - Delete confirmation modal/dialog
 - Dialog showing vendor name
 - Cancel and Delete action buttons
@@ -157,10 +141,9 @@ router.delete('/:id', (req: Request, res: Response) => {
 ```vue
 <!-- Delete button on row -->
 <button @click="openDeleteDialog(vendor)" class="btn-delete">
-  🗑️
 </button>
 
-<!-- Confirmation dialog -->
+<!-- Confirmation Modal dialog -->
 <div v-if="showDeleteDialog" class="dialog-overlay">
   <div class="dialog">
     <h2>Delete Vendor</h2>
@@ -179,19 +162,16 @@ router.delete('/:id', (req: Request, res: Response) => {
 **Added deleteVendor action**:
 ```typescript
 deleteVendor(id: string) {
-  this.loading = true;
-  return VendorService.deleteVendor(id)
-    .then(() => {
-      this.vendors = this.vendors.filter(v => v.id !== id);
-    })
-    .catch((error: any) => {
-      this.error = error.message || 'Failed to delete vendor';
-      throw error;
-    })
-    .finally(() => {
-      this.loading = false;
-    });
-}
+    error.value = null;
+    try {
+      await VendorService.deleteVendor(id);
+      await fetchVendors();
+    } catch (err) {
+      error.value = "Failed to delete vendor. Please try again later.";
+      console.error(err);
+      throw err;
+    }
+  }
 ```
 
 **Features**:
@@ -204,25 +184,26 @@ deleteVendor(id: string) {
 **Added deleteVendor method**:
 ```typescript
 async deleteVendor(id: string): Promise<void> {
-  try {
-    const response = await fetch(`${API_URL}/vendors/${id}`, {
-      method: 'DELETE',
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+    try {
+      const response = await fetch(`${API_URL}/vendors/${id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.message || `HTTP error! status: ${response.status}`,
+        );
+      }
+    } catch (error) {
+      console.error("Error deleting vendor:", error);
+      throw error;
     }
-  } catch (error) {
-    console.error('Error deleting vendor:', error);
-    throw error;
-  }
-}
+  },
 ```
 
 ---
 
-## Task 3: Fix Duplicate Submissions ✅
+## Task 3: Fix Duplicate Submissions
 
 ### Files Modified:
 1. **frontend/src/components/VendorForm.vue** - Form state management
@@ -233,38 +214,53 @@ async deleteVendor(id: string): Promise<void> {
 const isSubmitting = ref(false);
 
 const submitForm = async () => {
-  // Early return if already submitting
-  if (isSubmitting.value) return;
-  
-  validateForm();
-  if (hasFormErrors.value) return;
-  
+  errors.name = validateFieldValue("name", form.name);
+  errors.contact_person = validateFieldValue(
+    "contact_person",
+    form.contact_person,
+  );
+  errors.email = validateFieldValue("email", form.email);
+  errors.partner_type = validateFieldValue("partner_type", form.partner_type);
+  // Prevent multiple submissions
+  if (isSubmitting.value || vendorStore.loading) {
+    return;
+  }
+  if (!isFormValid.value) {
+    return;
+  }
+  success.value = false;
   isSubmitting.value = true;
   try {
-    await vendorStore.addVendor(form);
-    resetForm();
-  } catch (error) {
-    errors.value.submit = (error as Error).message;
+    await vendorStore.addVendor({ ...form });
+    success.value = true;
+    setTimeout(() => {
+      resetForm();
+      success.value = false;
+    }, 2000);
+  } catch (err: any) {
+    if (err.message && err.message.includes("email")) {
+      errors.email = err.message;
+    }
   } finally {
     isSubmitting.value = false;
   }
 };
 ```
-
-**Updated computed property**:
-```typescript
-const hasFormErrors = computed(() => {
-  return Object.keys(errors.value).length > 0;
-});
-```
-
 **Updated button binding**:
 ```vue
-<button 
+<button
   type="submit"
-  :disabled="vendorStore.loading || isSubmitting || hasFormErrors"
+  class="btn btn-primary"
+  :disabled="vendorStore.loading || isSubmitting || !isFormValid"
+  :aria-busy="isSubmitting"
 >
-  {{ isSubmitting ? 'Submitting...' : 'Add Vendor' }}
+  <span
+    v-if="vendorStore.loading || isSubmitting"
+    class="spinner"
+  ></span>
+  {{
+    vendorStore.loading || isSubmitting ? "Submitting..." : "Add Vendor"
+  }}
 </button>
 ```
 
@@ -278,7 +274,7 @@ const hasFormErrors = computed(() => {
 
 ---
 
-## Task 4: Unique Email Validation ✅
+## Task 4: Unique Email Validation
 
 ### Files Modified:
 1. **backend-node/src/routes/vendors.ts** - Email validation in POST and check-email endpoint
@@ -291,17 +287,22 @@ const hasFormErrors = computed(() => {
 **In VendorForm.vue**:
 ```typescript
 const validateEmailUniqueness = async () => {
-  if (!form.email?.includes('@')) return;
-  
+  if (!form.email || !isValidEmail(form.email)) {
+    return;
+  }
+  emailCheckInProgress.value = true;
   try {
     const exists = await VendorService.checkEmailExists(form.email);
     if (exists) {
-      errors.value.email = 
-        'A vendor with this email already exists';
+      errors.email =
+        "A vendor with this email already exists. Please use a different email address.";
+    } else if (errors.email && errors.email.includes("already exists")) {
+      errors.email = "";
     }
-  } catch (error) {
-    console.error('Email check failed:', error);
-    // Silent fail - let backend validation handle it
+  } catch (err) {
+    console.error("Error checking email uniqueness:", err);
+  } finally {
+    emailCheckInProgress.value = false;
   }
 };
 ```
@@ -322,16 +323,20 @@ router.get('/check-email', (req: Request, res: Response) => {
 
   console.log('Checking email uniqueness:', email);
 
-  db.get('SELECT id FROM vendors WHERE LOWER(email) = LOWER(?)', [email], (err: any, row: any) => {
-    if (err) {
-      console.error('Database error during email check:', err);
-      return res.status(500).json({ message: 'Failed to check email', error: err.message });
-    }
-    
-    const exists = !!row;
-    console.log(`Email "${email}" exists:`, exists);
-    res.status(200).json({ exists });
-  });
+  db.get(
+    "SELECT id FROM vendors WHERE LOWER(email) = LOWER(?)",
+    [email],
+    (err: any, row: any) => {
+      if (err) {
+        console.error("Database error during email check:", err);
+        return res
+          .status(500)
+          .json({ message: "Failed to check email", error: err.message });
+      }
+      const exists = !!row;
+      res.status(200).json({ exists });
+    },
+  );
 });
 ```
 
@@ -345,21 +350,46 @@ router.get('/check-email', (req: Request, res: Response) => {
 **In backend vendors.ts POST handler**:
 ```typescript
 // Check for duplicate email
-db.get('SELECT id FROM vendors WHERE LOWER(email) = LOWER(?)', [email], function(err: any, row: any) {
-  if (err) {
-    console.error('Database error during email check:', err);
-    return res.status(500).json({ message: 'Database error', error: err.message });
-  }
-  
-  if (row) {
-    console.warn('Duplicate email attempt:', email);
-    return res.status(400).json({ 
-      message: 'A vendor with this email already exists. Please use a different email address.' 
-    });
-  }
-
-  // ... proceed with insert
-});
+db.get(
+    "SELECT id FROM vendors WHERE LOWER(email) = LOWER(?)",
+    [email],
+    function (err: any, row: any) {
+      if (err) {
+        console.error("Database error during email check:", err);
+        return res
+          .status(500)
+          .json({ message: "Database error", error: err.message });
+      }
+      if (row) {
+        console.warn("Duplicate email attempt:", email);
+        return res.status(400).json({
+          message:
+            "A vendor with this email already exists. Please use a different email address.",
+        });
+      }
+      const sql = `INSERT INTO vendors (name, contact_person, email, partner_type) 
+                     VALUES (?, ?, ?, ?)`;
+      db.run(
+        sql,
+        [name.trim(), contact_person.trim(), email.trim(), partner_type],
+        function (err: any) {
+          if (err) {
+            console.error("Database error during insert:", err);
+            return res
+              .status(500)
+              .json({ message: "Failed to create vendor", error: err.message });
+          }
+          res.status(201).json({
+            id: this.lastID,
+            name,
+            contact_person,
+            email,
+            partner_type,
+          });
+        },
+      );
+    },
+  );
 ```
 
 **Database Schema**:
@@ -381,23 +411,20 @@ CREATE TABLE vendors (
 **Added checkEmailExists method**:
 ```typescript
 async checkEmailExists(email: string): Promise<boolean> {
-  try {
-    const response = await fetch(
-      `${API_URL}/vendors/check-email?email=${encodeURIComponent(email)}`
-    );
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+      const url = `${API_URL}/vendors/check-email?email=${encodeURIComponent(email)}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.warn("Email check returned non-OK status:", response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      return data.exists;
+    } catch (error) {
+      console.error("Error checking email:", error);
+      return false;
     }
-    
-    const data = await response.json();
-    return data.exists;
-  } catch (error) {
-    console.error('Error checking email:', error);
-    // Default to allowing the email if the check fails
-    return false;
-  }
-}
+  },
 ```
 
 **Features**:
@@ -515,9 +542,12 @@ db.serialize(() => {
 **Email format validation added**:
 ```typescript
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-if (!emailRegex.test(email)) {
-  return res.status(400).json({ message: 'Invalid email format' });
-}
+  if (!emailRegex.test(email)) {
+    console.warn("Invalid email format:", email);
+    return res.status(400).json({
+      message: "Invalid email format",
+    });
+  }
 
 **Scripts remain**:
 - `dev`: ts-node-dev with hot reload
@@ -555,22 +585,22 @@ if (!emailRegex.test(email)) {
 
 | Feature | Backend | Frontend | Status |
 |---------|---------|----------|--------|
-| Design System | — | ✅ 40+ CSS variables | Done |
-| Dark Mode Toggle | — | ✅ Theme switching + localStorage | Done |
-| Responsive Layout | — | ✅ Mobile/Tablet/Desktop | Done |
-| Delete Vendor | ✅ DELETE endpoint | ✅ Dialog + button | Done |
-| Duplicate Prevention | ✅ Form state lock | ✅ isSubmitting guard | Done |
-| Email Uniqueness | ✅ 3-layer validation | ✅ Blur check + error | Done |
-| CORS Support | ✅ All methods allowed | ✅ Works with origin * | Done |
-| Health Check | ✅ GET /health | — | Done |
-| Error Handling | ✅ Consistent messages | ✅ User-friendly display | Done |
-| Logging | ✅ Console with emojis | ✅ Network logging | Done |
+| Design System | — | CSS variables | Done |
+| Dark Mode Toggle | — | Theme switching + localStorage | Done |
+| Responsive Layout | — | Mobile/Tablet/Desktop | Done |
+| Delete Vendor | DELETE endpoint | Dialog + button | Done |
+| Duplicate Prevention | Form state lock | isSubmitting guard | Done |
+| Email Uniqueness | 3-layer validation | Blur check + error | Done |
+| CORS Support | All methods allowed | Works with origin * | Done |
+| Health Check | GET /health | — | Done |
+| Error Handling | Consistent messages | User-friendly display | Done |
+| Logging | Console with emojis | Network logging | Done |
 
 ---
 
 ## Testing Completed
 
-✅ **Verified**:
+**Verified**:
 - Frontend builds successfully (npm run build)
 - All TypeScript files compile without errors
 - All API endpoints accept proper JSON
